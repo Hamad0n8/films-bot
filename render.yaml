@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: films-bot
+    env: python
+    repo: https://films-bot-n0gs.onrender.com
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    plan: free
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+    autoDeploy: true
+    disk:
+      name: data
+      mountPath: /opt/render/project/src
+      sizeGB: 1
