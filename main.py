@@ -5,6 +5,7 @@ import os
 import re
 import time
 import threading
+from flask import Flask
 
 # Токен аз environment variables
 BOT_TOKEN = os.getenv('BOT_TOKEN')
@@ -12,6 +13,9 @@ if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN дар environment variables танзим нашудааст!")
 
 bot = telebot.TeleBot(BOT_TOKEN)
+
+# Flask app барои keep-alive
+app = Flask(__name__)
 
 # Канали муқарраршуда барои истисно
 ALLOWED_CHANNEL = "@VOLFHA"
@@ -78,6 +82,19 @@ class GroupSettings:
         return False
 
 settings = GroupSettings()
+
+# --- KEEP-ALIVE ENDPOINT ---
+@app.route('/')
+def keep_alive():
+    return "🤖 Bot is alive! " + str(time.ctime())
+
+@app.route('/status')
+def status():
+    try:
+        bot_info = bot.get_me()
+        return f"✅ Bot @{bot_info.username} is running!"
+    except:
+        return "❌ Bot connection error"
 
 # --- ФУНКСИЯҲОИ ЁРИРАСОН ---
 
@@ -152,7 +169,7 @@ def send_welcome(message):
 /list_channels - Рӯйхати каналҳо
 /add_word калима - Илова кардани калимаи мамнӯъ
 /remove_word калима - Хориҷ кардани калимаи мамнӯъ
-/list_words - Рӯйхати калимаҳои мамнӯъ
+/list_words - Рӯйхати калимаḳои мамнӯъ
 
 Хусусиятҳо:
 ✅ Санҷиши обуна дар каналҳо
@@ -160,6 +177,7 @@ def send_welcome(message):
 ✅ Маҳдудияти линк барои ғайриадминҳо
 ✅ Шинохтани админҳои беном ва паёмҳои канал
 ✅ Истиснои канали @VOLFHA
+✅ Keep-alive системаи автоматӣ
     """
     bot.reply_to(message, help_text)
 
@@ -345,7 +363,8 @@ def welcome_new_members(message):
                 message.chat.id,
                 "🤖 Салом! Ман боти идоракунии гурӯҳ ҳастам.\n"
                 "Администраторҳо метавонанд аз фармонҳои ман истифода баранд.\n"
-                "Барои кӯмак /help-ро дар паёми хусусӣ фиристед."
+                "Барои кӯмак /help-ро дар паёми хусусӣ фиристед.\n\n"
+                "🔄 Keep-alive системаи автоматӣ фаъол аст!"
             )
             continue
         
@@ -371,6 +390,12 @@ def welcome_new_members(message):
         except:
             pass
 
+# --- ФУНКСИЯИ FLASK SERVER ---
+def run_flask():
+    """Flask server-ро дар потоки алоҳида иҷро мекунад"""
+    port = int(os.environ.get('PORT', 10000))
+    app.run(host='0.0.0.0', port=port, debug=False)
+
 # --- ХАТОГИҲО ВА RESTART ---
 
 def handle_error(func):
@@ -386,13 +411,15 @@ def handle_error(func):
 @handle_error
 def start_bot():
     """Функсияи асосии оғози бот"""
-    print("🤖 Бот дар Render.com оғоз ёфт...")
+    print("🤖 Бот бо keep-alive системаи Render.com оғоз ёфт...")
     print(f"🔑 Токен: {BOT_TOKEN[:10]}...")
     
     # Санҷиши интернет ва API
     try:
         bot_info = bot.get_me()
-        print(f"✅ Бот {bot_info.username} бомуваффақият васл шуд!")
+        print(f"✅ Бот @{bot_info.username} бомуваффақият васл шуд!")
+        print(f"🌐 Keep-alive endpoint: http:/films-bot.onrender.com/")
+        print(f"📊 Status endpoint: http://films-bot.onrender.com/status")
     except Exception as e:
         print(f"❌ Хатогӣ ҳангоми васл шудан: {e}")
         return False
@@ -404,6 +431,11 @@ def start_bot():
 # --- ОҒОЗИ КОР ---
 
 if __name__ == "__main__":
+    # Оғози Flask server дар потоки алоҳида
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    print("🌐 Flask keep-alive server оғоз ёфт...")
+    
     # Кӯшиши оғоз бо restart автоматӣ
     max_retries = 5
     retry_count = 0
