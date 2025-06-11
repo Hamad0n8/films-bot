@@ -5,36 +5,20 @@ import os
 import re
 import time
 import threading
-import flask
 
-# --- ТАНЗИМОТ ---
-
-# Токени ботро аз тағирёбандаҳои муҳит (Environment Variables) дар Render мегирем
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
+# Токен аз environment variables
+BOT_TOKEN = os.getenv('BOT_TOKEN')
 if not BOT_TOKEN:
-    print("!!! Хатогӣ: Токени бот (BOT_TOKEN) дар тағирёбандаҳои муҳит ёфт нашуд!")
-    exit()
+    raise ValueError("BOT_TOKEN дар environment variables танзим нашудааст!")
 
 bot = telebot.TeleBot(BOT_TOKEN)
-
-# Номи домейни вебии шумо дар Render (масалан, your-bot-name.onrender.com)
-# Онро дар тағирёбандаҳои муҳит дар Render муқаррар кунед
-WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
-
-# Роҳ барои диски доимӣ дар Render
-# Мо маълумотро дар ин ҷо нигоҳ медорем, то гум нашавад
-DATA_DIR = "/var/data"
-SETTINGS_FILE = os.path.join(DATA_DIR, "group_settings.json")
-
-# Агар папка вуҷуд надошта бошад, онро эҷод мекунем
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR)
-
 
 # Канали муқарраршуда барои истисно
 ALLOWED_CHANNEL = "@VOLFHA"
 
-# --- СИНФИ ТАНЗИМОТ (бе тағйир, вале роҳи файл иваз шуд) ---
+# Файлҳо барои нигоҳдории маълумот
+SETTINGS_FILE = "group_settings.json"
+
 class GroupSettings:
     def __init__(self):
         self.load_settings()
@@ -43,7 +27,7 @@ class GroupSettings:
         try:
             with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
                 self.settings = json.load(f)
-        except (FileNotFoundError, json.JSONDecodeError):
+        except FileNotFoundError:
             self.settings = {}
     
     def save_settings(self):
@@ -95,15 +79,22 @@ class GroupSettings:
 
 settings = GroupSettings()
 
-# --- ФУНКСИЯҲОИ ЁРИРАСОН (бе тағйирот) ---
+# --- ФУНКСИЯҲОИ ЁРИРАСОН ---
 
+# ID-и корбари беном (вақте админ аз номи гурӯҳ менависад)
 GROUP_ANONYMOUS_BOT_ID = 1087968824
 
 def is_admin(message):
+    """
+    Санҷиши васеъшудаи администратор будани корбар.
+    Ҳолати админҳои беномро низ ба назар мегирад.
+    """
     user_id = message.from_user.id
     chat_id = message.chat.id
+    
     if user_id == GROUP_ANONYMOUS_BOT_ID:
         return True
+
     try:
         chat_member = bot.get_chat_member(chat_id, user_id)
         return chat_member.status in ['administrator', 'creator']
@@ -112,6 +103,7 @@ def is_admin(message):
         return False
 
 def check_subscription(user_id, channels):
+    """Санҷиши обуна будан дар каналҳо"""
     for channel in channels:
         try:
             member = bot.get_chat_member(channel, user_id)
@@ -122,6 +114,7 @@ def check_subscription(user_id, channels):
     return True, None
 
 def contains_link(text):
+    """Санҷиши мавҷудияти линк дар матн"""
     url_pattern = re.compile(
         r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
         r'|(?:^|[^@\w])@[a-zA-Z0-9_]{1,15}(?![a-zA-Z0-9_])'
@@ -130,9 +123,11 @@ def contains_link(text):
     return bool(url_pattern.search(text))
 
 def is_from_allowed_channel(text):
+    """Санҷиши линк аз канали иҷозатдодашуда"""
     return ALLOWED_CHANNEL.lower() in text.lower()
 
 def delete_message_after(delay, chat_id, message_id):
+    """Функсия барои нест кардани паём баъди як муддати муайян дар потоки алоҳида."""
     def task():
         time.sleep(delay)
         try:
@@ -141,12 +136,13 @@ def delete_message_after(delay, chat_id, message_id):
             pass
     threading.Thread(target=task).start()
 
-# --- ФАРМОНҲО (бе тағйирот) ---
+# --- ФАРМОНҲО ---
 
 @bot.message_handler(commands=['start', 'help'])
 def send_welcome(message):
     if message.chat.type != 'private':
         return
+    
     help_text = """
 🤖 Боти идоракунии гурӯҳ
 
@@ -172,10 +168,12 @@ def add_channel(message):
     if not is_admin(message):
         bot.reply_to(message, "❌ Танҳо администраторҳо ин фармонро истифода бурда метавонанд!")
         return
+    
     try:
         channel = message.text.split()[1]
         if not channel.startswith('@'):
             channel = '@' + channel
+        
         if settings.add_required_channel(message.chat.id, channel):
             bot.reply_to(message, f"✅ Канали {channel} илова карда шуд!")
         else:
@@ -188,10 +186,12 @@ def remove_channel(message):
     if not is_admin(message):
         bot.reply_to(message, "❌ Танҳо администраторҳо ин фармонро истифода бурда метавонанд!")
         return
+    
     try:
         channel = message.text.split()[1]
         if not channel.startswith('@'):
             channel = '@' + channel
+        
         if settings.remove_required_channel(message.chat.id, channel):
             bot.reply_to(message, f"✅ Канали {channel} хориҷ карда шуд!")
         else:
@@ -204,8 +204,10 @@ def list_channels(message):
     if not is_admin(message):
         bot.reply_to(message, "❌ Танҳо администраторҳо ин фармонро истифода бурда метавонанд!")
         return
+    
     group_settings = settings.get_group_settings(message.chat.id)
     channels = group_settings['required_channels']
+    
     if channels:
         channels_text = "\n".join([f"• {channel}" for channel in channels])
         bot.reply_to(message, f"📋 Каналҳои талабшуда:\n{channels_text}")
@@ -217,10 +219,12 @@ def add_banned_word(message):
     if not is_admin(message):
         bot.reply_to(message, "❌ Танҳо администраторҳо ин фармонро истифода бурда метавонанд!")
         return
+    
     try:
         word = ' '.join(message.text.split()[1:])
         if not word:
             raise IndexError
+        
         if settings.add_banned_word(message.chat.id, word):
             bot.reply_to(message, f"✅ Калимаи '{word}' ба рӯйхати мамнӯъ илова карда шуд!")
         else:
@@ -233,10 +237,12 @@ def remove_banned_word(message):
     if not is_admin(message):
         bot.reply_to(message, "❌ Танҳо администраторҳо ин фармонро истифода бурда метавонанд!")
         return
+    
     try:
         word = ' '.join(message.text.split()[1:])
         if not word:
             raise IndexError
+        
         if settings.remove_banned_word(message.chat.id, word):
             bot.reply_to(message, f"✅ Калимаи '{word}' аз рӯйхати мамнӯъ хориҷ карда шуд!")
         else:
@@ -249,29 +255,37 @@ def list_banned_words(message):
     if not is_admin(message):
         bot.reply_to(message, "❌ Танҳо администраторҳо ин фармонро истифода бурда метавонанд!")
         return
+    
     group_settings = settings.get_group_settings(message.chat.id)
     words = group_settings['banned_words']
+    
     if words:
         words_text = "\n".join([f"• {word}" for word in words])
         bot.reply_to(message, f"🚫 Калимаҳои мамнӯъ:\n{words_text}")
     else:
         bot.reply_to(message, "🚫 Ягон калимаи мамнӯъ танзим нашудааст!")
 
-
-# --- КОРКАРДИ ПАЁМҲО (бе тағйирот) ---
+# --- КОРКАРДИ ПАЁМҲО ВА МЕДИА ---
 
 @bot.message_handler(content_types=['text', 'photo', 'video', 'document', 'audio', 'voice', 'sticker'])
 def handle_all_messages(message):
+    # Танҳо дар гурӯҳҳо кор мекунад
     if message.chat.type == 'private':
         return
+
+    # Агар паём аз номи канал фиристода шуда бошад, онро нодида мегирем.
+    # Инҳо постҳои худи канал мебошанд, ки дар гурӯҳ пайдо мешаванд.
     if message.sender_chat:
         return
+
+    # Агар фиристанда админ бошад, ҳеҷ кор намекунем
     if is_admin(message):
         return
     
     group_settings = settings.get_group_settings(message.chat.id)
     message_text = (message.text or message.caption or "").lower()
     
+    # 1. Санҷиши обуна дар каналҳо
     required_channels = group_settings['required_channels']
     if required_channels:
         if message.from_user.id != GROUP_ANONYMOUS_BOT_ID:
@@ -289,6 +303,7 @@ def handle_all_messages(message):
                     pass
                 return
 
+    # 2. Санҷиши калимаҳои мамнӯъ
     banned_words = group_settings['banned_words']
     for word in banned_words:
         if word in message_text:
@@ -304,6 +319,7 @@ def handle_all_messages(message):
                 pass
             return
     
+    # 3. Санҷиши линкҳо (танҳо барои матн)
     if message.content_type == 'text' and contains_link(message.text):
         if not is_from_allowed_channel(message.text):
             try:
@@ -319,6 +335,7 @@ def handle_all_messages(message):
 
 @bot.message_handler(content_types=['new_chat_members'])
 def welcome_new_members(message):
+    """Паёми хӯш омадед барои аъзоёни нав"""
     if message.chat.type == 'private':
         return
     
@@ -334,7 +351,9 @@ def welcome_new_members(message):
         
         name = new_member.first_name
         username = f"@{new_member.username}" if new_member.username else name
+        
         welcome_text = f"🎉 Хӯш омадед, {username}!\n\n"
+        
         group_settings = settings.get_group_settings(message.chat.id)
         required_channels = group_settings['required_channels']
         
@@ -352,35 +371,53 @@ def welcome_new_members(message):
         except:
             pass
 
-# --- ҚИСМИ ВЕБ-СЕРВЕР (БАРОИ RENDER) ---
+# --- ХАТОГИҲО ВА RESTART ---
 
-app = flask.Flask(__name__)
+def handle_error(func):
+    """Decorator барои коркарди хатогиҳо"""
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            print(f"Хатогӣ дар {func.__name__}: {e}")
+            return None
+    return wrapper
 
-# Роҳ (route) барои қабули webhook аз Telegram
-@app.route('/' + BOT_TOKEN, methods=['POST'])
-def get_message():
-    json_string = flask.request.get_data().decode('utf-8')
-    update = telebot.types.Update.de_json(json_string)
-    bot.process_new_updates([update])
-    return "!", 200
+@handle_error
+def start_bot():
+    """Функсияи асосии оғози бот"""
+    print("🤖 Бот дар Render.com оғоз ёфт...")
+    print(f"🔑 Токен: {BOT_TOKEN[:10]}...")
+    
+    # Санҷиши интернет ва API
+    try:
+        bot_info = bot.get_me()
+        print(f"✅ Бот {bot_info.username} бомуваффақият васл шуд!")
+    except Exception as e:
+        print(f"❌ Хатогӣ ҳангоми васл шудан: {e}")
+        return False
+    
+    # Оғози polling
+    bot.polling(none_stop=True, interval=1, timeout=20)
+    return True
 
-# Роҳи асосӣ барои санҷиш, ки сервер кор мекунад
-@app.route('/')
-def index():
-    return "Bot is running...", 200
+# --- ОҒОЗИ КОР ---
 
 if __name__ == "__main__":
-    if not WEBHOOK_URL:
-        print("!!! Хатогӣ: WEBHOOK_URL дар тағирёбандаҳои муҳит ёфт нашуд!")
-        print("Лутфан URL-и вебии худро дар Render муқаррар кунед.")
-        exit()
-
-    # Webhook-ро насб мекунем
-    bot.remove_webhook()
-    time.sleep(0.5)
-    bot.set_webhook(url=f"{WEBHOOK_URL}/{BOT_TOKEN}")
-    print(f"🤖 Webhook ба суроғаи {WEBHOOK_URL} насб карда шуд.")
+    # Кӯшиши оғоз бо restart автоматӣ
+    max_retries = 5
+    retry_count = 0
     
-    # Серверро оғоз мекунем
-    # Render ба таври худкор портро муайян мекунад
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))    
+    while retry_count < max_retries:
+        try:
+            if start_bot():
+                break
+        except Exception as e:
+            retry_count += 1
+            print(f"❌ Хатогӣ ҷиддӣ (кӯшиш {retry_count}/{max_retries}): {e}")
+            if retry_count < max_retries:
+                print("🔄 Restart баъди 30 сония...")
+                time.sleep(30)
+            else:
+                print("💥 Бот нашуд!")
+                break
